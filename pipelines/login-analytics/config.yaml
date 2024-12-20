@@ -1,0 +1,20 @@
+pipeline:
+  name: login-analytics
+  description: "ETL pipeline for login analytics data"
+  schedule: "@daily"
+  retries: 3
+  retry_delay: "5s"
+
+source:
+  type: sqlserver
+  database: my_source_db
+  table: source_table
+
+sink:
+  type: postgres
+  table: sink_table
+
+transformations:
+  - type: add_column
+    column_name: processed_at
+    default_value: "CURRENT_TIMESTAMP"

@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  sqlserver-shard1:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=jdwnjw9de3
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data-1:/var/opt/mssql
+    networks:
+      - etl-network
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "jdwnjw9de3" -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  sqlserver-shard2:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=jdwnjw9de3
+      - MSSQL_PID=Developer
+    ports:
+      - "1434:1433"
+    volumes:
+      - sqlserver-data-2:/var/opt/mssql
+    networks:
+      - etl-network
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "jdwnjw9de3" -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  sqlserver-shard3:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=jdwnjw9de3
+      - MSSQL_PID=Developer
+    ports:
+      - "1435:1433"
+    volumes:
+      - sqlserver-data-3:/var/opt/mssql
+    networks:
+      - etl-network
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "jdwnjw9de3" -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  sqlserver-shard4:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=jdwnjw9de3
+      - MSSQL_PID=Developer
+    ports:
+      - "1436:1433"
+    volumes:
+      - sqlserver-data-4:/var/opt/mssql
+    networks:
+      - etl-network
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "jdwnjw9de3" -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  sqlserver-data-1:
+  sqlserver-data-2:
+  sqlserver-data-3:
+  sqlserver-data-4:
+
+networks:
+  etl-network:
+    driver: bridge

@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  postgres-sink:
+    image: postgres:latest
+    environment:
+      - POSTGRES_USER=etl_user
+      - POSTGRES_PASSWORD=jdwnjw9de3
+      - POSTGRES_DB=my_sink_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - etl-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U etl_user -d my_sink_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+
+networks:
+  etl-network:
+    driver: bridge 

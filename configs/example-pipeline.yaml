@@ -1,0 +1,27 @@
+pipeline:
+  name: append_data_pipeline
+  description: "Appends data from SQL Server shards to PostgreSQL"
+  schedule: "@daily"
+  retries: 3
+  retry_delay: 5s
+
+source:
+  type: sqlserver
+  servers:
+    - xxx.xx.x.68
+    - xxx.xx.x.53
+    - xxx.xx.x.30
+    - xxx.xx.x.41
+  database: my_source_db
+  table: source_table
+
+sink:
+  type: postgres
+  server: xx.xx.x.201
+  database: my_sink_db
+  table: sink_table
+
+transformations:
+  - type: add_column
+    column_name: processed_at
+    default_value: "CURRENT_TIMESTAMP" 
