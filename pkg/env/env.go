@@ -12,9 +12,9 @@ import (
 // Config holds environment variables
 type Config struct {
 	// SQL Server
+	SQLServerShards   []string // List of shard connection strings (host:port)
 	SQLServerUser     string
 	SQLServerPassword string
-	SQLServerShards   []string // List of shard connection strings
 	SQLServerDB       string
 
 	// PostgreSQL
@@ -37,7 +37,7 @@ func Load(workDir string) (*Config, error) {
 	}
 
 	// Parse shard configuration
-	shardHosts := getEnvOrDefault("SQLSERVER_SHARD_HOSTS", "127.0.0.1")
+	shardHosts := getEnvOrDefault("SQLSERVER_SHARD_HOSTS", "localhost")
 	shardPorts := getEnvOrDefault("SQLSERVER_SHARD_PORTS", "1433,1434,1435,1436")
 
 	hosts := strings.Split(shardHosts, ",")
@@ -45,7 +45,7 @@ func Load(workDir string) (*Config, error) {
 
 	var shards []string
 	for i, port := range ports {
-		host := "127.0.0.1" // default host
+		host := "localhost" // default host
 		if i < len(hosts) {
 			host = strings.TrimSpace(hosts[i])
 		}
@@ -54,16 +54,16 @@ func Load(workDir string) (*Config, error) {
 
 	return &Config{
 		// SQL Server
+		SQLServerShards:   shards,
 		SQLServerUser:     getEnvOrDefault("SQLSERVER_USER", "sa"),
 		SQLServerPassword: getEnvOrDefault("SQLSERVER_PASSWORD", ""),
-		SQLServerShards:   shards,
-		SQLServerDB:       getEnvOrDefault("SQLSERVER_DB", "my_source_db"),
+		SQLServerDB:       getEnvOrDefault("SQLSERVER_DB", "NSEBSE"),
 
 		// PostgreSQL
 		PostgresUser:     getEnvOrDefault("POSTGRES_USER", "etl_user"),
 		PostgresPassword: getEnvOrDefault("POSTGRES_PASSWORD", ""),
-		PostgresDB:       getEnvOrDefault("POSTGRES_DB", "my_sink_db"),
-		PostgresHost:     getEnvOrDefault("POSTGRES_HOST", "127.0.0.1"),
+		PostgresDB:       getEnvOrDefault("POSTGRES_DB", "etl_sink_db"),
+		PostgresHost:     getEnvOrDefault("POSTGRES_HOST", "localhost"),
 		PostgresPort:     getEnvOrDefault("POSTGRES_PORT", "5432"),
 
 		// ETL

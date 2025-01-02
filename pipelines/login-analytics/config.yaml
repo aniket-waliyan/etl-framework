@@ -1,20 +1,119 @@
 pipeline:
   name: login-analytics
-  description: "ETL pipeline for login analytics data"
+  description: ETL pipeline for NSEBSE user connection history and logs
   schedule: "@daily"
   retries: 3
   retry_delay: "5s"
 
 source:
   type: sqlserver
-  database: my_source_db
-  table: source_table
+  database: NSEBSE
+  tables:
+    - name: dbo.tbl_UserConnectionHistory
+      query: >
+        SELECT 
+          sDealerId,
+          sGroupId,
+          sDealerCode,
+          nLogonLogoffTime,
+          nLoginAllowed,
+          nSuccessFailure,
+          cLogonLogoffFlag,
+          sDetails,
+          nModeOfConnection,
+          nConnectioNumber,
+          nEntrySequence,
+          nOMSSequenceNo,
+          sSessionId
+        FROM dbo.tbl_UserConnectionHistory
+        WHERE nLogonLogoffTime > ${LAST_RUN_TIMESTAMP}
+    - name: dbo.tbl_UserConnectionLog
+      query: >
+        SELECT 
+          sDealerId,
+          sGroupId,
+          sDealerCode,
+          nLogonLogoffTime,
+          nLoginAllowed,
+          nSuccessFailure,
+          cLogonLogoffFlag,
+          sDetails,
+          nModeOfConnection,
+          nConnectioNumber,
+          nEntrySequence,
+          nOMSSequenceNo,
+          sSessionId
+        FROM dbo.tbl_UserConnectionLog
+        WHERE nLogonLogoffTime > ${LAST_RUN_TIMESTAMP}
 
 sink:
   type: postgres
-  table: sink_table
+  tables:
+    - name: user_connection_history
+      columns:
+        - name: dealer_id
+          type: VARCHAR(50)
+        - name: group_id
+          type: VARCHAR(50)
+        - name: dealer_code
+          type: VARCHAR(50)
+        - name: logon_logoff_time
+          type: BIGINT
+        - name: login_allowed
+          type: INTEGER
+        - name: success_failure
+          type: SMALLINT
+        - name: logon_logoff_flag
+          type: CHAR(1)
+        - name: details
+          type: VARCHAR(255)
+        - name: mode_of_connection
+          type: INTEGER
+        - name: connection_number
+          type: INTEGER
+        - name: entry_sequence
+          type: INTEGER
+        - name: oms_sequence_no
+          type: BIGINT
+        - name: session_id
+          type: VARCHAR(100)
+        - name: source_table
+          type: VARCHAR(50)
+        - name: processed_at
+          type: TIMESTAMP
+    - name: user_connection_log
+      columns:
+        - name: dealer_id
+          type: VARCHAR(50)
+        - name: group_id
+          type: VARCHAR(50)
+        - name: dealer_code
+          type: VARCHAR(50)
+        - name: logon_logoff_time
+          type: BIGINT
+        - name: login_allowed
+          type: INTEGER
+        - name: success_failure
+          type: SMALLINT
+        - name: logon_logoff_flag
+          type: CHAR(1)
+        - name: details
+          type: VARCHAR(255)
+        - name: mode_of_connection
+          type: INTEGER
+        - name: connection_number
+          type: INTEGER
+        - name: entry_sequence
+          type: INTEGER
+        - name: oms_sequence_no
+          type: BIGINT
+        - name: session_id
+          type: VARCHAR(100)
+        - name: processed_at
+          type: TIMESTAMP
 
 transformations:
-  - type: add_column
-    column_name: processed_at
-    default_value: "CURRENT_TIMESTAMP"
+  - type: add_timestamp
+    column: processed_at
+  - type: add_source
+    column: source_table

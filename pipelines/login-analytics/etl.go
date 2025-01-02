@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aniketwaliyan/etl-framework/pkg/config"
@@ -16,16 +17,23 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// CustomerData represents a record in the source/sink tables
-type CustomerData struct {
-	CustomerID int
-	ShardID    int
-	FirstName  string
-	LastName   string
-	Email      string
-	CreatedAt  time.Time
-	Country    string
-	Amount     float64
+// UserConnectionData represents a record in the source/sink tables
+type UserConnectionData struct {
+	DealerID         string
+	GroupID          string
+	DealerCode       string
+	LogonLogoffTime  int64
+	LoginAllowed     int
+	SuccessFailure   int16
+	LogonLogoffFlag  string
+	Details          string
+	ModeOfConnection int
+	ConnectionNumber int
+	EntrySequence    int
+	OMSSequenceNo    int64
+	SessionID        string
+	SourceTable      string
+	ProcessedAt      time.Time
 }
 
 // Extractor handles data extraction from SQL Server shards
@@ -41,7 +49,7 @@ func NewExtractor(envConfig *env.Config) *Extractor {
 func (e *Extractor) Init(cfg *config.Config) error {
 	log.Println("Initializing Extractor...")
 	for _, server := range e.env.SQLServerShards {
-		log.Printf("Connecting to SQL Server: %s", server)
+		log.Printf("Connecting to SQL Server shard: %s", server)
 		parts := strings.Split(server, ":")
 		if len(parts) != 2 {
 			return fmt.Errorf("invalid server format %s, expected host:port", server)
@@ -50,14 +58,15 @@ func (e *Extractor) Init(cfg *config.Config) error {
 
 		connStr := fmt.Sprintf("server=%s,%s;user id=%s;password=%s;database=%s;encrypt=disable",
 			host, port, e.env.SQLServerUser, e.env.SQLServerPassword, e.env.SQLServerDB)
+
 		db, err := sql.Open("sqlserver", connStr)
 		if err != nil {
-			return fmt.Errorf("failed to connect to SQL Server %s: %v", server, err)
+			return fmt.Errorf("failed to connect to SQL Server shard %s: %v", server, err)
 		}
 		if err := db.Ping(); err != nil {
-			return fmt.Errorf("failed to ping SQL Server %s: %v", server, err)
+			return fmt.Errorf("failed to ping SQL Server shard %s: %v", server, err)
 		}
-		log.Printf("Successfully connected to SQL Server: %s", server)
+		log.Printf("Successfully connected to SQL Server shard: %s", server)
 		e.dbs = append(e.dbs, db)
 	}
 	return nil
@@ -71,49 +80,107 @@ func (e *Extractor) Extract(ctx context.Context) (<-chan pipeline.DataRecord, <-
 		defer close(dataCh)
 		defer close(errCh)
 
+		var wg sync.WaitGroup
 		for i, db := range e.dbs {
-			log.Printf("Extracting data from shard %d", i+1)
-			query := `SELECT customer_id, shard_id, first_name, last_name, 
-				     email, created_at, country, amount FROM source_table`
+			wg.Add(2) // 2 tables per shard
 
-			rows, err := db.QueryContext(ctx, query)
-			if err != nil {
-				errCh <- fmt.Errorf("failed to query source table: %v", err)
-				return
-			}
-			defer rows.Close()
-
-			recordCount := 0
-			for rows.Next() {
-				var data CustomerData
-				err := rows.Scan(
-					&data.CustomerID,
-					&data.ShardID,
-					&data.FirstName,
-					&data.LastName,
-					&data.Email,
-					&data.CreatedAt,
-					&data.Country,
-					&data.Amount,
-				)
-				if err != nil {
-					errCh <- fmt.Errorf("failed to scan row: %v", err)
-					return
+			// Extract from UserConnectionHistory
+			go func(shardID int, db *sql.DB) {
+				defer wg.Done()
+				if err := e.extractTable(ctx, db, shardID, "dbo.tbl_UserConnectionHistory", dataCh, errCh); err != nil {
+					errCh <- fmt.Errorf("failed to extract from UserConnectionHistory on shard %d: %v", shardID, err)
 				}
+			}(i+1, db)
 
-				recordCount++
-				select {
-				case <-ctx.Done():
-					return
-				case dataCh <- pipeline.DataRecord{Data: data}:
+			// Extract from UserConnectionLog
+			go func(shardID int, db *sql.DB) {
+				defer wg.Done()
+				if err := e.extractTable(ctx, db, shardID, "dbo.tbl_UserConnectionLog", dataCh, errCh); err != nil {
+					errCh <- fmt.Errorf("failed to extract from UserConnectionLog on shard %d: %v", shardID, err)
 				}
-			}
-			log.Printf("Extracted %d records from shard %d", recordCount, i+1)
+			}(i+1, db)
 		}
-		log.Println("Extraction completed")
+
+		wg.Wait()
 	}()
 
 	return dataCh, errCh
+}
+
+func (e *Extractor) extractTable(ctx context.Context, db *sql.DB, shardID int, tableName string, dataCh chan<- pipeline.DataRecord, errCh chan<- error) error {
+	// Calculate timestamp for 5 hours ago
+	fiveHoursAgo := time.Now().Add(-5 * time.Hour)
+	// Convert to Unix timestamp
+	cutoffTimestamp := fiveHoursAgo.Unix()
+
+	query := fmt.Sprintf(`
+		SELECT 
+			sDealerId,
+			sGroupId,
+			sDealerCode,
+			nLogonLogoffTime,
+			nLoginAllowed,
+			nSuccessFailure,
+			cLogonLogoffFlag,
+			sDetails,
+			nModeOfConnection,
+			nConnectioNumber,
+			nEntrySequence,
+			nOMSSequenceNo,
+			sSessionId
+		FROM %s
+		WHERE nLogonLogoffTime > @cutoffTime
+		ORDER BY nLogonLogoffTime DESC`, tableName)
+
+	// Create a new query with parameters
+	stmt, err := db.PrepareContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to prepare query for %s on shard %d: %v", tableName, shardID, err)
+	}
+	defer stmt.Close()
+
+	// Execute the query with the cutoff timestamp
+	rows, err := stmt.QueryContext(ctx, sql.Named("cutoffTime", cutoffTimestamp))
+	if err != nil {
+		return fmt.Errorf("failed to query table %s on shard %d: %v", tableName, shardID, err)
+	}
+	defer rows.Close()
+
+	recordCount := 0
+	for rows.Next() {
+		var data UserConnectionData
+		err := rows.Scan(
+			&data.DealerID,
+			&data.GroupID,
+			&data.DealerCode,
+			&data.LogonLogoffTime,
+			&data.LoginAllowed,
+			&data.SuccessFailure,
+			&data.LogonLogoffFlag,
+			&data.Details,
+			&data.ModeOfConnection,
+			&data.ConnectionNumber,
+			&data.EntrySequence,
+			&data.OMSSequenceNo,
+			&data.SessionID,
+		)
+		if err != nil {
+			errCh <- fmt.Errorf("failed to scan row from %s on shard %d: %v", tableName, shardID, err)
+			continue
+		}
+
+		data.SourceTable = fmt.Sprintf("%s_shard%d", tableName, shardID)
+		data.ProcessedAt = time.Now()
+
+		recordCount++
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case dataCh <- pipeline.DataRecord{Data: data}:
+		}
+	}
+	log.Printf("Extracted %d records from %s on shard %d (after %s)", recordCount, tableName, shardID, fiveHoursAgo.Format(time.RFC3339))
+	return nil
 }
 
 func (e *Extractor) Close() error {
@@ -137,9 +204,14 @@ func (t *Transformer) Init(cfg *config.Config) error {
 }
 
 func (t *Transformer) Transform(ctx context.Context, data interface{}) (interface{}, error) {
-	// In this case, we're not modifying the data, just passing it through
-	// You could add data validation, enrichment, or transformation here
-	return data, nil
+	record, ok := data.(UserConnectionData)
+	if !ok {
+		return nil, fmt.Errorf("invalid data type: expected UserConnectionData")
+	}
+
+	// Add any necessary transformations here
+	// For now, we're just passing through the data
+	return record, nil
 }
 
 func (t *Transformer) Close() error {
@@ -161,7 +233,12 @@ func NewLoader(envConfig *env.Config) *Loader {
 func (l *Loader) Init(cfg *config.Config) error {
 	log.Println("Initializing Loader...")
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		l.env.PostgresHost, l.env.PostgresPort, l.env.PostgresUser, l.env.PostgresPassword, l.env.PostgresDB)
+		l.env.PostgresHost,
+		l.env.PostgresPort,
+		l.env.PostgresUser,
+		l.env.PostgresPassword,
+		l.env.PostgresDB)
+
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		return fmt.Errorf("failed to connect to PostgreSQL: %v", err)
@@ -175,35 +252,64 @@ func (l *Loader) Init(cfg *config.Config) error {
 }
 
 func (l *Loader) Load(ctx context.Context, data interface{}) error {
-	customer, ok := data.(CustomerData)
+	record, ok := data.(UserConnectionData)
 	if !ok {
 		l.errors++
-		return fmt.Errorf("invalid data type: expected CustomerData")
+		return fmt.Errorf("invalid data type: expected UserConnectionData")
 	}
 
-	query := `INSERT INTO sink_table (
-		customer_id, shard_id, first_name, last_name, 
-		email, created_at, country, amount, processed_at
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-	ON CONFLICT (customer_id) DO UPDATE SET
-		shard_id = EXCLUDED.shard_id,
-		first_name = EXCLUDED.first_name,
-		last_name = EXCLUDED.last_name,
-		email = EXCLUDED.email,
-		created_at = EXCLUDED.created_at,
-		country = EXCLUDED.country,
-		amount = EXCLUDED.amount,
-		processed_at = CURRENT_TIMESTAMP`
+	// Determine target table based on source
+	targetTable := "user_connection_log"
+	if record.SourceTable == "dbo.tbl_UserConnectionHistory" {
+		targetTable = "user_connection_history"
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO %s (
+			dealer_id,
+			group_id,
+			dealer_code,
+			logon_logoff_time,
+			login_allowed,
+			success_failure,
+			logon_logoff_flag,
+			details,
+			mode_of_connection,
+			connection_number,
+			entry_sequence,
+			oms_sequence_no,
+			session_id,
+			processed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		ON CONFLICT (dealer_id, logon_logoff_time, entry_sequence) 
+		DO UPDATE SET
+			group_id = EXCLUDED.group_id,
+			dealer_code = EXCLUDED.dealer_code,
+			login_allowed = EXCLUDED.login_allowed,
+			success_failure = EXCLUDED.success_failure,
+			logon_logoff_flag = EXCLUDED.logon_logoff_flag,
+			details = EXCLUDED.details,
+			mode_of_connection = EXCLUDED.mode_of_connection,
+			connection_number = EXCLUDED.connection_number,
+			oms_sequence_no = EXCLUDED.oms_sequence_no,
+			session_id = EXCLUDED.session_id,
+			processed_at = EXCLUDED.processed_at`, targetTable)
 
 	_, err := l.db.ExecContext(ctx, query,
-		customer.CustomerID,
-		customer.ShardID,
-		customer.FirstName,
-		customer.LastName,
-		customer.Email,
-		customer.CreatedAt,
-		customer.Country,
-		customer.Amount,
+		record.DealerID,
+		record.GroupID,
+		record.DealerCode,
+		record.LogonLogoffTime,
+		record.LoginAllowed,
+		record.SuccessFailure,
+		record.LogonLogoffFlag,
+		record.Details,
+		record.ModeOfConnection,
+		record.ConnectionNumber,
+		record.EntrySequence,
+		record.OMSSequenceNo,
+		record.SessionID,
+		record.ProcessedAt,
 	)
 
 	if err != nil {
