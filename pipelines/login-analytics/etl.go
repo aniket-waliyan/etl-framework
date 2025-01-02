@@ -56,16 +56,41 @@ func (e *Extractor) Init(cfg *config.Config) error {
 		}
 		host, port := parts[0], parts[1]
 
-		connStr := fmt.Sprintf("server=%s,%s;user id=%s;password=%s;database=%s;encrypt=disable",
+		// Build connection string with all necessary parameters
+		connStr := fmt.Sprintf("server=%s,%s;user id=%s;password=%s;database=%s;encrypt=disable;connection timeout=30;app name=ETLPipeline;TrustServerCertificate=true",
 			host, port, e.env.SQLServerUser, e.env.SQLServerPassword, e.env.SQLServerDB)
+
+		log.Printf("Attempting to connect to SQL Server with user: %s, database: %s", e.env.SQLServerUser, e.env.SQLServerDB)
 
 		db, err := sql.Open("sqlserver", connStr)
 		if err != nil {
 			return fmt.Errorf("failed to connect to SQL Server shard %s: %v", server, err)
 		}
-		if err := db.Ping(); err != nil {
-			return fmt.Errorf("failed to ping SQL Server shard %s: %v", server, err)
+
+		// Set connection pool settings
+		db.SetMaxOpenConns(10)
+		db.SetMaxIdleConns(5)
+		db.SetConnMaxLifetime(time.Minute * 5)
+
+		// Test connection with retry
+		var connected bool
+		for retries := 0; retries < 3; retries++ {
+			if err := db.Ping(); err != nil {
+				log.Printf("Failed to ping SQL Server shard %s (attempt %d/3): %v", server, retries+1, err)
+				if retries < 2 {
+					time.Sleep(time.Second * 2)
+					continue
+				}
+				return fmt.Errorf("failed to ping SQL Server shard %s after 3 attempts: %v", server, err)
+			}
+			connected = true
+			break
 		}
+
+		if !connected {
+			return fmt.Errorf("failed to establish connection to SQL Server shard %s", server)
+		}
+
 		log.Printf("Successfully connected to SQL Server shard: %s", server)
 		e.dbs = append(e.dbs, db)
 	}
