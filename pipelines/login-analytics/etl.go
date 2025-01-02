@@ -56,11 +56,12 @@ func (e *Extractor) Init(cfg *config.Config) error {
 		}
 		host, port := parts[0], parts[1]
 
-		// Build connection string with all necessary parameters
-		connStr := fmt.Sprintf("server=%s,%s;user id=%s;password=%s;database=%s;encrypt=disable;connection timeout=30;app name=ETLPipeline;TrustServerCertificate=true",
-			host, port, e.env.SQLServerUser, e.env.SQLServerPassword, e.env.SQLServerDB)
+		// Build connection string to match the working Node.js configuration
+		connStr := fmt.Sprintf("server=%s;port=%s;user id=%s;password=%s;database=%s;"+
+			"encrypt=false;trustServerCertificate=true",
+			host, port, "TECHCONN", "T$CHC@Nn#2025", "NSEBSE")
 
-		log.Printf("Attempting to connect to SQL Server with user: %s, database: %s", e.env.SQLServerUser, e.env.SQLServerDB)
+		log.Printf("Attempting to connect to SQL Server with user: TECHCONN, database: NSEBSE")
 
 		db, err := sql.Open("sqlserver", connStr)
 		if err != nil {
@@ -74,21 +75,28 @@ func (e *Extractor) Init(cfg *config.Config) error {
 
 		// Test connection with retry
 		var connected bool
+		var lastErr error
 		for retries := 0; retries < 3; retries++ {
-			if err := db.Ping(); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := db.PingContext(ctx)
+			cancel()
+
+			if err != nil {
+				lastErr = err
 				log.Printf("Failed to ping SQL Server shard %s (attempt %d/3): %v", server, retries+1, err)
 				if retries < 2 {
 					time.Sleep(time.Second * 2)
 					continue
 				}
-				return fmt.Errorf("failed to ping SQL Server shard %s after 3 attempts: %v", server, err)
+			} else {
+				connected = true
+				break
 			}
-			connected = true
-			break
 		}
 
 		if !connected {
-			return fmt.Errorf("failed to establish connection to SQL Server shard %s", server)
+			db.Close()
+			return fmt.Errorf("failed to connect to SQL Server shard %s: %v", server, lastErr)
 		}
 
 		log.Printf("Successfully connected to SQL Server shard: %s", server)
@@ -133,11 +141,6 @@ func (e *Extractor) Extract(ctx context.Context) (<-chan pipeline.DataRecord, <-
 }
 
 func (e *Extractor) extractTable(ctx context.Context, db *sql.DB, shardID int, tableName string, dataCh chan<- pipeline.DataRecord, errCh chan<- error) error {
-	// Calculate timestamp for 5 hours ago
-	fiveHoursAgo := time.Now().Add(-5 * time.Hour)
-	// Convert to Unix timestamp
-	cutoffTimestamp := fiveHoursAgo.Unix()
-
 	query := fmt.Sprintf(`
 		SELECT 
 			sDealerId,
@@ -154,18 +157,11 @@ func (e *Extractor) extractTable(ctx context.Context, db *sql.DB, shardID int, t
 			nOMSSequenceNo,
 			sSessionId
 		FROM %s
-		WHERE nLogonLogoffTime > @cutoffTime
+		WHERE DATEADD(SECOND, nLogonLogoffTime, '1970-01-01') >= DATEADD(HOUR, -5, GETDATE())
 		ORDER BY nLogonLogoffTime DESC`, tableName)
 
-	// Create a new query with parameters
-	stmt, err := db.PrepareContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("failed to prepare query for %s on shard %d: %v", tableName, shardID, err)
-	}
-	defer stmt.Close()
-
-	// Execute the query with the cutoff timestamp
-	rows, err := stmt.QueryContext(ctx, sql.Named("cutoffTime", cutoffTimestamp))
+	// Execute the query
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to query table %s on shard %d: %v", tableName, shardID, err)
 	}
@@ -204,7 +200,7 @@ func (e *Extractor) extractTable(ctx context.Context, db *sql.DB, shardID int, t
 		case dataCh <- pipeline.DataRecord{Data: data}:
 		}
 	}
-	log.Printf("Extracted %d records from %s on shard %d (after %s)", recordCount, tableName, shardID, fiveHoursAgo.Format(time.RFC3339))
+	log.Printf("Extracted %d records from %s on shard %d", recordCount, tableName, shardID)
 	return nil
 }
 
