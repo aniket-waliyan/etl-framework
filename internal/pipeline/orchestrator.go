@@ -9,7 +9,6 @@ import (
 	"github.com/aniketwaliyan/etl-framework/internal/utils/config"
 )
 
-// Orchestrator manages the execution of ETL pipelines
 type Orchestrator struct {
 	config      *config.PipelineConfig
 	extractor   Extractor
@@ -17,7 +16,6 @@ type Orchestrator struct {
 	loader      Loader
 }
 
-// NewOrchestrator creates a new pipeline orchestrator
 func NewOrchestrator(cfg *config.PipelineConfig, ext Extractor, trans Transformer, load Loader) *Orchestrator {
 	return &Orchestrator{
 		config:      cfg,
@@ -27,7 +25,6 @@ func NewOrchestrator(cfg *config.PipelineConfig, ext Extractor, trans Transforme
 	}
 }
 
-// Execute runs the pipeline with retry logic
 func (o *Orchestrator) Execute(ctx context.Context) error {
 	var lastErr error
 
@@ -43,28 +40,24 @@ func (o *Orchestrator) Execute(ctx context.Context) error {
 			continue
 		}
 
-		return nil // Success
+		return nil
 	}
 
 	return fmt.Errorf("pipeline failed after %d retries, last error: %v",
 		o.config.Pipeline.Retries, lastErr)
 }
 
-// runPipeline executes a single pipeline run
 func (o *Orchestrator) runPipeline(ctx context.Context) error {
-	// Initialize components
+
 	if err := o.initComponents(ctx); err != nil {
 		return fmt.Errorf("initialization failed: %w", err)
 	}
 	defer o.closeComponents()
 
-	// Start extraction
 	records, extractErrs := o.extractor.Extract(ctx)
 
-	// Apply transformations
 	transformed, transformErrs := o.transformer.Transform(ctx, records)
 
-	// Handle loading and errors
 	errCh := make(chan error, 1)
 	go func() {
 		defer close(errCh)
@@ -73,7 +66,6 @@ func (o *Orchestrator) runPipeline(ctx context.Context) error {
 		}
 	}()
 
-	// Error handling
 	for {
 		select {
 		case err, ok := <-extractErrs:

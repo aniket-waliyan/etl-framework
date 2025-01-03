@@ -2,7 +2,6 @@ package config
 
 import "time"
 
-// PipelineConfig represents the main configuration structure for an ETL pipeline
 type PipelineConfig struct {
 	Pipeline struct {
 		Name        string        `yaml:"name"`
@@ -29,7 +28,6 @@ type PipelineConfig struct {
 	Transformations []TransformationConfig `yaml:"transformations"`
 }
 
-// TransformationConfig represents a single transformation step
 type TransformationConfig struct {
 	Type         string      `yaml:"type"`
 	ColumnName   string      `yaml:"column_name,omitempty"`

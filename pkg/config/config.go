@@ -9,7 +9,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds the pipeline configuration
 type Config struct {
 	Pipeline struct {
 		Name        string `yaml:"name"`
@@ -29,29 +28,25 @@ type Config struct {
 	} `yaml:"sink"`
 }
 
-// Parser handles configuration parsing
 type Parser struct{}
 
-// NewParser creates a new configuration parser
 func NewParser() *Parser {
 	return &Parser{}
 }
 
-// Parse reads and parses the configuration file
 func (p *Parser) Parse(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %v", err)
 	}
 
-	// Replace environment variables in the YAML content
 	content := string(data)
 	envVarPattern := regexp.MustCompile(`\${([^}]+)}`)
 	content = envVarPattern.ReplaceAllStringFunc(content, func(match string) string {
-		envVar := match[2 : len(match)-1] // Remove ${ and }
+		envVar := match[2 : len(match)-1]
 		value := os.Getenv(envVar)
 		if value == "" {
-			// Return original if env var not found
+
 			return match
 		}
 		return value
@@ -65,7 +60,6 @@ func (p *Parser) Parse(filename string) (*Config, error) {
 	return &cfg, nil
 }
 
-// Helper function to convert string to int with default
 func getIntOrDefault(value string, defaultValue int) int {
 	if i, err := strconv.Atoi(value); err == nil {
 		return i

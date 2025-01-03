@@ -17,7 +17,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// UserConnectionData represents a record in the source/sink tables
 type UserConnectionData struct {
 	DealerID         string
 	GroupID          string
@@ -36,7 +35,6 @@ type UserConnectionData struct {
 	ProcessedAt      time.Time
 }
 
-// Extractor handles data extraction from SQL Server shards
 type Extractor struct {
 	dbs []*sql.DB
 	env *env.Config
@@ -56,7 +54,6 @@ func (e *Extractor) Init(cfg *config.Config) error {
 		}
 		host, port := parts[0], parts[1]
 
-		// Build connection string to match the working Node.js configuration
 		connStr := fmt.Sprintf("server=%s;port=%s;user id=%s;password=%s;database=%s;"+
 			"encrypt=false;trustServerCertificate=true",
 			host, port, "TECHCONN", "T$CHC@Nn#2025", "NSEBSE")
@@ -68,12 +65,10 @@ func (e *Extractor) Init(cfg *config.Config) error {
 			return fmt.Errorf("failed to connect to SQL Server shard %s: %v", server, err)
 		}
 
-		// Set connection pool settings
 		db.SetMaxOpenConns(10)
 		db.SetMaxIdleConns(5)
 		db.SetConnMaxLifetime(time.Minute * 5)
 
-		// Test connection with retry
 		var connected bool
 		var lastErr error
 		for retries := 0; retries < 3; retries++ {
@@ -115,9 +110,8 @@ func (e *Extractor) Extract(ctx context.Context) (<-chan pipeline.DataRecord, <-
 
 		var wg sync.WaitGroup
 		for i, db := range e.dbs {
-			wg.Add(2) // 2 tables per shard
+			wg.Add(2)
 
-			// Extract from UserConnectionHistory
 			go func(shardID int, db *sql.DB) {
 				defer wg.Done()
 				if err := e.extractTable(ctx, db, shardID, "dbo.tbl_UserConnectionHistory", dataCh, errCh); err != nil {
@@ -125,7 +119,6 @@ func (e *Extractor) Extract(ctx context.Context) (<-chan pipeline.DataRecord, <-
 				}
 			}(i+1, db)
 
-			// Extract from UserConnectionLog
 			go func(shardID int, db *sql.DB) {
 				defer wg.Done()
 				if err := e.extractTable(ctx, db, shardID, "dbo.tbl_UserConnectionLog", dataCh, errCh); err != nil {
@@ -160,7 +153,6 @@ func (e *Extractor) extractTable(ctx context.Context, db *sql.DB, shardID int, t
 		WHERE DATEADD(SECOND, nLogonLogoffTime, '1970-01-01') >= DATEADD(HOUR, -5, GETDATE())
 		ORDER BY nLogonLogoffTime DESC`, tableName)
 
-	// Execute the query
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to query table %s on shard %d: %v", tableName, shardID, err)
@@ -213,7 +205,6 @@ func (e *Extractor) Close() error {
 	return nil
 }
 
-// Transformer handles data transformation
 type Transformer struct{}
 
 func NewTransformer() *Transformer {
@@ -230,8 +221,6 @@ func (t *Transformer) Transform(ctx context.Context, data interface{}) (interfac
 		return nil, fmt.Errorf("invalid data type: expected UserConnectionData")
 	}
 
-	// Add any necessary transformations here
-	// For now, we're just passing through the data
 	return record, nil
 }
 
@@ -239,7 +228,6 @@ func (t *Transformer) Close() error {
 	return nil
 }
 
-// Loader handles data loading to PostgreSQL
 type Loader struct {
 	db     *sql.DB
 	count  int
@@ -279,7 +267,6 @@ func (l *Loader) Load(ctx context.Context, data interface{}) error {
 		return fmt.Errorf("invalid data type: expected UserConnectionData")
 	}
 
-	// Determine target table based on source
 	targetTable := "user_connection_log"
 	if record.SourceTable == "dbo.tbl_UserConnectionHistory" {
 		targetTable = "user_connection_history"
@@ -358,7 +345,6 @@ func main() {
 	log.Println("Starting ETL pipeline...")
 	ctx := context.Background()
 
-	// Load environment variables
 	workDir, err := os.Getwd()
 	if err != nil {
 		log.Fatalf("Failed to get working directory: %v", err)
@@ -368,7 +354,6 @@ func main() {
 		log.Fatalf("Failed to load environment variables: %v", err)
 	}
 
-	// Parse configuration
 	log.Println("Parsing configuration...")
 	parser := config.NewParser()
 	cfg, err := parser.Parse("config.yaml")
@@ -376,7 +361,6 @@ func main() {
 		log.Fatalf("Failed to parse configuration: %v", err)
 	}
 
-	// Initialize components
 	log.Println("Initializing pipeline components...")
 	extractor := NewExtractor(envConfig)
 	if err := extractor.Init(cfg); err != nil {
@@ -393,7 +377,6 @@ func main() {
 		log.Fatalf("Failed to initialize loader: %v", err)
 	}
 
-	// Create and run pipeline
 	log.Println("Starting pipeline execution...")
 	orchestrator := pipeline.NewOrchestrator(cfg, extractor, transformer, loader)
 	if err := orchestrator.Execute(ctx); err != nil {

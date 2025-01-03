@@ -17,13 +17,11 @@ func NewGenerator(name string) *Generator {
 }
 
 func (g *Generator) Generate() error {
-	// Create pipeline directory
 	pipelineDir := filepath.Join("pipelines", g.Name)
 	if err := os.MkdirAll(pipelineDir, 0755); err != nil {
 		return fmt.Errorf("failed to create pipeline directory: %w", err)
 	}
 
-	// Generate files
 	files := map[string]string{
 		"etl.go":      etlTemplate,
 		"config.yaml": configTemplate,
@@ -38,7 +36,6 @@ func (g *Generator) Generate() error {
 		}
 	}
 
-	// Create .env.template in the root directory if it doesn't exist
 	if err := g.generateRootEnvTemplate(); err != nil {
 		return fmt.Errorf("failed to generate root .env.template: %w", err)
 	}

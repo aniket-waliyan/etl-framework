@@ -9,34 +9,32 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config holds environment variables
 type Config struct {
-	// SQL Server
-	SQLServerShards   []string // List of shard connection strings (host:port)
+	
+	SQLServerShards   []string 
 	SQLServerUser     string
 	SQLServerPassword string
 	SQLServerDB       string
 
-	// PostgreSQL
+	
 	PostgresUser     string
 	PostgresPassword string
 	PostgresDB       string
 	PostgresHost     string
 	PostgresPort     string
 
-	// ETL
+	
 	RetryCount string
 	RetryDelay string
 }
 
-// Load reads environment variables from .env file
 func Load(workDir string) (*Config, error) {
 	envFile := filepath.Join(workDir, ".env")
 	if err := godotenv.Load(envFile); err != nil {
 		return nil, fmt.Errorf("error loading .env file: %v", err)
 	}
 
-	// Parse shard configuration
+	
 	shardHosts := getEnvOrDefault("SQLSERVER_SHARD_HOSTS", "localhost")
 	shardPorts := getEnvOrDefault("SQLSERVER_SHARD_PORTS", "1433,1434,1435,1436")
 
@@ -45,7 +43,7 @@ func Load(workDir string) (*Config, error) {
 
 	var shards []string
 	for i, port := range ports {
-		host := "localhost" // default host
+		host := "localhost" 
 		if i < len(hosts) {
 			host = strings.TrimSpace(hosts[i])
 		}
@@ -53,26 +51,25 @@ func Load(workDir string) (*Config, error) {
 	}
 
 	return &Config{
-		// SQL Server
+		
 		SQLServerShards:   shards,
 		SQLServerUser:     getEnvOrDefault("SQLSERVER_USER", "sa"),
 		SQLServerPassword: getEnvOrDefault("SQLSERVER_PASSWORD", ""),
 		SQLServerDB:       getEnvOrDefault("SQLSERVER_DB", "NSEBSE"),
 
-		// PostgreSQL
+		
 		PostgresUser:     getEnvOrDefault("POSTGRES_USER", "etl_user"),
 		PostgresPassword: getEnvOrDefault("POSTGRES_PASSWORD", ""),
 		PostgresDB:       getEnvOrDefault("POSTGRES_DB", "etl_sink_db"),
 		PostgresHost:     getEnvOrDefault("POSTGRES_HOST", "localhost"),
 		PostgresPort:     getEnvOrDefault("POSTGRES_PORT", "5432"),
 
-		// ETL
+		
 		RetryCount: getEnvOrDefault("ETL_RETRY_COUNT", "3"),
 		RetryDelay: getEnvOrDefault("ETL_RETRY_DELAY", "5s"),
 	}, nil
 }
 
-// getEnvOrDefault returns environment variable value or default if not set
 func getEnvOrDefault(key, defaultValue string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
