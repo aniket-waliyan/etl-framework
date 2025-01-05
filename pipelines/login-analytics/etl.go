@@ -56,7 +56,7 @@ func (e *Extractor) Init(cfg *config.Config) error {
 
 		connStr := fmt.Sprintf("server=%s;port=%s;user id=%s;password=%s;database=%s;"+
 			"encrypt=false;trustServerCertificate=true",
-			host, port, "TECHCONN", "T$CHC@Nn#2025", "NSEBSE")
+			host, port, e.env.SQLServerUser, e.env.SQLServerPassword, e.env.SQLServerDB)
 
 		log.Printf("Attempting to connect to SQL Server with user: TECHCONN, database: NSEBSE")
 
@@ -150,7 +150,7 @@ func (e *Extractor) extractTable(ctx context.Context, db *sql.DB, shardID int, t
 			nOMSSequenceNo,
 			sSessionId
 		FROM %s
-		WHERE DATEADD(SECOND, nLogonLogoffTime, '1970-01-01') >= DATEADD(HOUR, -5, GETDATE())
+		WHERE DATEADD(SECOND, nLogonLogoffTime, '1970-01-01') >= DATEADD(DAY, -15, GETDATE())
 		ORDER BY nLogonLogoffTime DESC`, tableName)
 
 	rows, err := db.QueryContext(ctx, query)
